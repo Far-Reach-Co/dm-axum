@@ -1,8 +1,14 @@
+use axum::{
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
+    Json, Router,
+};
 use dotenv;
+use sqlx::postgres::PgPoolOptions;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use warp::{hyper::StatusCode, Filter};
 
-// mod db;
+// mod database;
 // mod error;
 // mod handler;
 
@@ -11,21 +17,34 @@ async fn main() {
     // env
     let my_path = "./.env";
     dotenv::from_path(my_path).unwrap();
+    // database
+    let database_url = dotenv::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(&database_url)
+        .await
+        .unwrap();
 
-    let env_key = "test";
-    let env_value = dotenv::var(env_key).unwrap();
-    println!("{}:{}", env_key, env_value);
+    // initialize tracing
+    tracing_subscriber::fmt::init();
 
-    // health
-    let health_status = warp::path("status").map(|| StatusCode::OK.to_string());
-
-    // static
-    let static_assets = warp::path::end().and(warp::fs::dir("./public"));
-
-    let routes = warp::get().and(health_status.or(static_assets));
+    // build our application with a route
+    let app = Router::new()
+        // `GET /` goes to `root`
+        .route("/", get(root));
+    // `POST /users` goes to `create_user`
+    // .route("/users", post(create_user));
 
     const SOCKADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 4000);
     println!("Serving at address: 'http://{}'", SOCKADDR);
     // serve
-    warp::serve(routes).run(SOCKADDR).await;
+    tracing::debug!("listening on {}", SOCKADDR);
+    axum::Server::bind(&SOCKADDR)
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
+}
+
+async fn root() -> &'static str {
+    "Hello, World!"
 }
